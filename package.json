@@ -1,0 +1,27 @@
+{
+  "name": "class-notes-assistant",
+  "version": "1.0.0",
+  "description": "An AI-powered application that automatically organizes class notes into logical categories",
+  "scripts": {
+    "frontend:install": "cd frontend && npm install",
+    "backend:install": "cd backend && npm install",
+    "install-all": "npm run frontend:install && npm run backend:install",
+    "frontend": "cd frontend && npm start",
+    "backend": "cd backend && npm start",
+    "backend:dev": "cd backend && npm run dev",
+    "start": "concurrently \"npm run backend\" \"npm run frontend\"",
+    "dev": "concurrently \"npm run backend:dev\" \"npm run frontend\""
+  },
+  "keywords": [
+    "class",
+    "notes",
+    "assistant",
+    "AI",
+    "organization"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+} 

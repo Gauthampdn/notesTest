@@ -1,0 +1,115 @@
+# Environment variables and secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Node.js dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Expo
+.expo/
+dist/
+web-build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+
+# React Native
+/ios/Pods/
+/ios/build/
+/ios/Podfile.lock
+/android/app/build/
+/android/build/
+/android/local.properties
+/android/gradle/
+/android/gradlew
+/android/gradlew.bat
+/android/.gradle/
+*.hprof
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# IDE - IntelliJ/WebStorm/etc
+.idea/
+*.iml
+.project
+.classpath
+*.iws
+.factorypath
+
+# TypeScript
+*.tsbuildinfo
+
+# Coverage reports
+coverage/
+.nyc_output/
+
+# Build artifacts
+/build/
+/out/
+/dist/
+/lib/
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Cache directories
+.cache/
+.eslintcache
+.parcel-cache/
+
+# EAS
+.eas/
+eas.json
+
+# Credentials
+google-services.json
+GoogleService-Info.plist
+
+# Backend
+/backend/dist/
+/backend/build/
+/backend/.env
+
+# Frontend
+/frontend/dist/
+/frontend/build/
+/frontend/.env
+
+# Keep example files
+!.env.example 
