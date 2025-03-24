@@ -9,6 +9,8 @@ import { Audio } from 'expo-av';
 // LangChain imports
 import { z } from 'zod';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
+import { Client } from 'langsmith';
+import { LangChainTracer } from "@langchain/core/tracers/tracer_langchain";
 import { createToolCallingAgent, AgentExecutor } from 'langchain/agents';
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
@@ -91,6 +93,9 @@ const getNotesTool = new DynamicStructuredTool({
 
 const tools = [addNoteTool, getNotesTool];
 
+// Add debug logging for tools
+console.log('Available tools:', tools.map(t => t.name));
+
 // --- 2) Define system prompt ---
 const systemPrompt = `
 You are a helpful assistant that organizes study notes. 
@@ -98,13 +103,9 @@ You are a helpful assistant that organizes study notes.
 When given a block of text:
 1. Identify 3-5 logical categories based on the content
 2. Break down the text into individual, meaningful notes
-3. Add each note to the appropriate category using the add_note tool
+3. Add each note to the appropriate category by calling the add_note tool
 4. When finished, tell the user what categories you created and how many notes are in each
 
-For categorizing:
-- Use specific subject-based categories (like "Geometry", "Vectors", "Cell Biology")
-- Don't use structural categories (like "Definitions" or "Examples")
-- Each note should be a single important fact, concept, or idea
 
 Use the get_notes tool when users ask to see their notes.
 
@@ -124,9 +125,20 @@ if (!GOOGLE_API_KEY) {
   console.warn('No Google API key found. Please add GOOGLE_API_KEY to your .env file and restart the app.');
 }
 
+const client = new Client({
+  apiKey: Constants.expoConfig?.extra?.langsmithApiKey,
+  apiUrl: Constants.expoConfig?.extra?.langsmithEndpoint,
+});
+
+const tracer = new LangChainTracer({
+  client,
+  projectName: Constants.expoConfig?.extra?.langsmithProject,
+});
+
 const model = new ChatGoogleGenerativeAI({
   apiKey: GOOGLE_API_KEY,
   model: 'gemini-1.5-flash-latest',
+  maxRetries: 2,
   maxOutputTokens: 2048,
   temperature: 0.2,
 });
@@ -151,6 +163,8 @@ export default function ChatScreen() {
           return;
         }
         
+        console.log('Creating agent with tools:', tools.map(t => t.name));
+        
         const agent = await createToolCallingAgent({
           llm: model,
           prompt,
@@ -161,7 +175,10 @@ export default function ChatScreen() {
           agent,
           tools,
           maxIterations: 15,
+          callbacks: [tracer],
         });
+
+        console.log('Agent created successfully');
       } catch (err) {
         console.error('Error creating agent:', err);
       }
@@ -252,15 +269,34 @@ export default function ChatScreen() {
         throw new Error('Agent not initialized yet');
       }
 
+      console.log('Sending message to agent:', userInput);
+      
       // Get response from agent
       const result = await agentExecutorRef.current.invoke({
         input: userInput,
         chat_history: chatHistory,
       });
 
-      // Get response text
+      console.log('Agent response:', result);
+
+      // Handle function calls in the response
       let responseText = '';
-      if (typeof result.output === 'string') {
+      if (Array.isArray(result.output)) {
+        const parts = [];
+        for (const part of result.output) {
+          if (part.type === 'text') {
+            parts.push(part.text);
+          } else if (part.functionCall) {
+            const { name, args } = part.functionCall;
+            const tool = tools.find(t => t.name === name);
+            if (tool) {
+              const toolResult = await tool.func(args);
+              parts.push(`Tool ${name} result: ${toolResult}`);
+            }
+          }
+        }
+        responseText = parts.join('\n');
+      } else if (typeof result.output === 'string') {
         responseText = result.output;
       } else {
         responseText = JSON.stringify(result.output);
