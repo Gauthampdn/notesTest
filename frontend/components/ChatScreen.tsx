@@ -8,17 +8,34 @@ import { Audio } from 'expo-av';
 
 // LangChain imports
 import { z } from 'zod';
+
+// Google generative AI
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
-import { Client } from 'langsmith';
-import { LangChainTracer } from "@langchain/core/tracers/tracer_langchain";
-import { createToolCallingAgent, AgentExecutor } from 'langchain/agents';
+
+// OpenAI imports
+import { ChatOpenAI } from '@langchain/openai';
+
+// LangChain Agents & Tools
+import { createOpenAIToolsAgent, createToolCallingAgent, AgentExecutor } from 'langchain/agents';
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 import { HumanMessage, AIMessage } from '@langchain/core/messages';
 
+// LangSmith Tracing
+import { Client } from 'langsmith';
+import { ConsoleCallbackHandler } from "@langchain/core/tracers/console"
+import { LangChainTracer } from "@langchain/core/tracers/tracer_langchain";
+
 // Our sub-components
 import ChatView from './ChatView';
 import NotesListView from './NotesListView';
+
+// --- 0) Choose AI Provider ---
+// Set to either "google" or "openai"
+const AI_PROVIDER = 'openai'; // Change this value to "openai" to use OpenAI
+
+// Optionally, if using OpenAI, define an API key (similar to GOOGLE_API_KEY)
+const OPENAI_API_KEY = Constants.expoConfig?.extra?.openaiApiKey || '';
 
 // --- 1) Define notes data and tools ---
 interface NotesData {
@@ -106,7 +123,6 @@ When given a block of text:
 3. Add each note to the appropriate category by calling the add_note tool
 4. When finished, tell the user what categories you created and how many notes are in each
 
-
 Use the get_notes tool when users ask to see their notes.
 
 Always be clear and helpful in your responses.
@@ -119,10 +135,14 @@ const prompt = ChatPromptTemplate.fromMessages([
   new MessagesPlaceholder('agent_scratchpad'),
 ]);
 
-// --- 3) Create the model ---
+// --- 3) Create the model & agent ---
+// Google API key (used only if AI_PROVIDER === "google")
 const GOOGLE_API_KEY = Constants.expoConfig?.extra?.googleApiKey || '';
-if (!GOOGLE_API_KEY) {
+if (AI_PROVIDER === 'google' && !GOOGLE_API_KEY) {
   console.warn('No Google API key found. Please add GOOGLE_API_KEY to your .env file and restart the app.');
+}
+if (AI_PROVIDER === 'openai' && !OPENAI_API_KEY) {
+  console.warn('No OpenAI API key found. Please add OPENAI_API_KEY to your .env file and restart the app.');
 }
 
 const client = new Client({
@@ -135,14 +155,6 @@ const tracer = new LangChainTracer({
   projectName: Constants.expoConfig?.extra?.langsmithProject,
 });
 
-const model = new ChatGoogleGenerativeAI({
-  apiKey: GOOGLE_API_KEY,
-  model: 'gemini-1.5-flash-latest',
-  maxRetries: 2,
-  maxOutputTokens: 2048,
-  temperature: 0.2,
-});
-
 // Get backend URL from app.config
 const BACKEND_URL = Constants.expoConfig?.extra?.backendUrl || 'http://localhost:3000';
 console.log('Using backend URL:', BACKEND_URL);
@@ -152,30 +164,58 @@ export default function ChatScreen() {
   const [localNotesData, setLocalNotesData] = useState<NotesData>({});
   const [chatHistory, setChatHistory] = useState<(HumanMessage | AIMessage)[]>([]);
   const agentExecutorRef = useRef<any>(null);
-  const [apiKeyMissing, setApiKeyMissing] = useState<boolean>(!GOOGLE_API_KEY);
+  const [apiKeyMissing, setApiKeyMissing] = useState<boolean>(
+    (AI_PROVIDER === 'google' && !GOOGLE_API_KEY) ||
+    (AI_PROVIDER === 'openai' && !OPENAI_API_KEY)
+  );
 
   // Initialize the agent
   React.useEffect(() => {
     (async () => {
       try {
-        if (!GOOGLE_API_KEY) {
-          setApiKeyMissing(true);
+        if (apiKeyMissing) {
           return;
         }
         
         console.log('Creating agent with tools:', tools.map(t => t.name));
-        
-        const agent = await createToolCallingAgent({
-          llm: model,
-          prompt,
-          tools,
-        });
+
+        let agent: any;
+        if (AI_PROVIDER === 'google') {
+          // Use Google generative AI (Gemini)
+          const model = new ChatGoogleGenerativeAI({
+            apiKey: GOOGLE_API_KEY,
+            model: 'gemini-1.5-flash-latest',
+            maxRetries: 2,
+            maxOutputTokens: 2048,
+            temperature: 0.2,
+            callbacks: [tracer],
+          });
+          
+          agent = await createToolCallingAgent({
+            llm: model,
+            prompt,
+            tools,
+          });
+        } else if (AI_PROVIDER === 'openai') {
+          // Use OpenAI
+          const llm = new ChatOpenAI({
+            apiKey: OPENAI_API_KEY,
+            temperature: 0.2,
+            modelName: 'gpt-4o-2024-08-06',
+            callbacks: [new ConsoleCallbackHandler()],
+          });
+          
+          agent = await createOpenAIToolsAgent({
+            llm,
+            tools,
+            prompt,
+          });
+        }
 
         agentExecutorRef.current = new AgentExecutor({
           agent,
           tools,
           maxIterations: 15,
-          callbacks: [tracer],
         });
 
         console.log('Agent created successfully');
@@ -183,7 +223,7 @@ export default function ChatScreen() {
         console.error('Error creating agent:', err);
       }
     })();
-  }, []);
+  }, [apiKeyMissing]);
 
   // Text-to-Speech function
   async function textToSpeech(text: any) {
@@ -253,7 +293,7 @@ export default function ChatScreen() {
     if (apiKeyMissing) {
       Alert.alert(
         "API Key Missing", 
-        "Please add your Google API Key to the .env file and restart the app.",
+        `Please add your ${AI_PROVIDER === 'google' ? 'Google' : 'OpenAI'} API Key to the .env file and restart the app.`,
         [{ text: "OK" }]
       );
       return;
@@ -308,7 +348,7 @@ export default function ChatScreen() {
       setChatHistory(prev => [...prev, aiMsg]);
 
       // Update notes display with current data
-      setLocalNotesData({...notesData});
+      setLocalNotesData({ ...notesData });
 
       // Read response aloud
       await textToSpeech(responseText);
@@ -331,10 +371,14 @@ export default function ChatScreen() {
           <View style={styles.apiKeyWarning}>
             <Text style={styles.apiKeyWarningTitle}>⚠️ API Key Missing</Text>
             <Text style={styles.apiKeyWarningText}>
-              Please add your Google API Key to the .env file:
+              Please add your {AI_PROVIDER === 'google' ? 'Google' : 'OpenAI'} API Key to the .env file:
             </Text>
             <View style={styles.codeBlock}>
-              <Text style={styles.codeText}>GOOGLE_API_KEY=your-api-key-here</Text>
+              <Text style={styles.codeText}>
+                {AI_PROVIDER === 'google'
+                  ? 'GOOGLE_API_KEY=your-api-key-here'
+                  : 'OPENAI_API_KEY=your-api-key-here'}
+              </Text>
             </View>
             <Text style={styles.apiKeyWarningText}>
               Then restart the app to continue.
